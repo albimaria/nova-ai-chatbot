@@ -1,5 +1,5 @@
 const API_BASE_URL =
-  "https://nova-ai-chatbot-1gwj.onrender.com/api/v1";
+  "https://nova-ai-chatbot-1gwj.onrender.com";
 
 const AUTH_TOKEN_KEY =
   "nova_access_token";
