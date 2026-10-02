@@ -78,7 +78,7 @@ export async function uploadFile(
 
   const response =
     await fetch(
-      `${API_BASE_URL}/files/upload`,
+      `${API_BASE_URL}/api/v1/files/upload`,
       {
         method: "POST",
 
@@ -161,7 +161,7 @@ export async function sendMessage({
 }) {
   const response =
     await fetch(
-      `${API_BASE_URL}/chat`,
+      `${API_BASE_URL}/api/v1/chat`,
       {
         method: "POST",
 
@@ -269,7 +269,7 @@ export async function streamMessage({
 }) {
   const response =
     await fetch(
-      `${API_BASE_URL}/chat/stream`,
+      `${API_BASE_URL}/api/v1/chat/stream`,
       {
         method: "POST",
 
@@ -605,7 +605,7 @@ export async function streamMessage({
 export async function getConversations() {
   const response =
     await fetch(
-      `${API_BASE_URL}/conversations`,
+      `${API_BASE_URL}/api/v1/conversations`,
       {
         headers:
           getAuthHeaders(),
@@ -637,7 +637,7 @@ export async function getConversation(
 ) {
   const response =
     await fetch(
-      `${API_BASE_URL}/conversations/${conversationId}`,
+      `${API_BASE_URL}/api/v1/conversations/${conversationId}`,
       {
         headers:
           getAuthHeaders(),
@@ -669,7 +669,7 @@ export async function deleteConversation(
 ) {
   const response =
     await fetch(
-      `${API_BASE_URL}/conversations/${conversationId}`,
+      `${API_BASE_URL}/api/v1/conversations/${conversationId}`,
       {
         method: "DELETE",
 
@@ -704,7 +704,7 @@ export async function renameConversation(
 ) {
   const response =
     await fetch(
-      `${API_BASE_URL}/conversations/${conversationId}`,
+      `${API_BASE_URL}/api/v1/conversations/${conversationId}`,
       {
         method: "PUT",
 
@@ -771,7 +771,7 @@ export async function editMessage(
 ) {
   const response =
     await fetch(
-      `${API_BASE_URL}/chat/message/edit`,
+      `${API_BASE_URL}/api/v1/chat/message/edit`,
       {
         method: "PUT",
 
@@ -846,7 +846,7 @@ export async function regenerateMessage(
 ) {
   const response =
     await fetch(
-      `${API_BASE_URL}/chat/message/regenerate`,
+      `${API_BASE_URL}/api/v1/chat/message/regenerate`,
       {
         method: "POST",
 
