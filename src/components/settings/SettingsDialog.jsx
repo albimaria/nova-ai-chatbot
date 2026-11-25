@@ -263,7 +263,47 @@ function DataTab({ onAllDeleted }) {
   );
 }
 
+function GuestAccount({ onLogout }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const endDemo = async () => {
+    setBusy(true);
+    try {
+      await authApi.deleteAccount("");
+      toast.show("Demo ended and its chats were deleted.");
+      onLogout();
+    } catch (error) {
+      toast.show(error.message, "error");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <p className="dialog-text">
+        You're using a <strong>demo account</strong>. It has a smaller daily message allowance and
+        may be reset when the server restarts. Create an account from the login screen to keep your chats.
+      </p>
+      <div className="setting-row">
+        <div>
+          <span className="setting-title">End demo</span>
+          <small>Deletes this demo account and its chats.</small>
+        </div>
+        <button type="button" className="btn btn-ghost btn-danger-text" onClick={endDemo} disabled={busy}>
+          End demo
+        </button>
+      </div>
+    </>
+  );
+}
+
 function AccountTab({ user, onLogout }) {
+  if (user?.is_guest) return <GuestAccount onLogout={onLogout} />;
+  return <RegisteredAccount user={user} onLogout={onLogout} />;
+}
+
+function RegisteredAccount({ user, onLogout }) {
   const toast = useToast();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");

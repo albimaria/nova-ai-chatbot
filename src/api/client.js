@@ -105,6 +105,12 @@ export const authApi = {
       auth: false,
       fallback: "Couldn't log in.",
     }),
+  guest: () =>
+    request("/auth/guest", {
+      method: "POST",
+      auth: false,
+      fallback: "Couldn't start the demo.",
+    }),
   me: () => request("/auth/me"),
   updateProfile: (fields) => request("/auth/me", { method: "PATCH", body: fields }),
   changePassword: (current_password, new_password) =>

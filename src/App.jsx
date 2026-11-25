@@ -10,6 +10,8 @@ import { useToast } from "./state/toast";
 
 const NovaScene = lazy(() => import("./components/three/NovaScene"));
 
+const isDemoLink = () => window.location.hash.startsWith("#/demo");
+
 function readShareToken() {
   const match = window.location.hash.match(/^#\/share\/([\w-]+)/);
   return match ? match[1] : null;
@@ -84,6 +86,30 @@ export default function App() {
     });
   }, [logout, toast]);
 
+  // Portfolio "live demo" links (#/demo) sign visitors straight into a guest account.
+  const [startingDemo, setStartingDemo] = useState(() => isDemoLink() && !tokenStore.get());
+
+  useEffect(() => {
+    if (!isDemoLink()) return;
+
+    if (tokenStore.get()) {
+      window.history.replaceState(null, "", "#/");
+      return;
+    }
+
+    authApi
+      .guest()
+      .then((data) => {
+        tokenStore.set(data.access_token);
+        setUser({ user_id: data.user_id, email: data.email, name: data.name, is_guest: true });
+      })
+      .catch((error) => toast.show(error.message, "error", 6000))
+      .finally(() => {
+        window.history.replaceState(null, "", "#/");
+        setStartingDemo(false);
+      });
+  }, [toast]);
+
   // Restore the session on load.
   useEffect(() => {
     if (!tokenStore.get()) return;
@@ -112,7 +138,7 @@ export default function App() {
   if (shareToken) {
     content = <SharedView token={shareToken} />;
     sceneState = { mode: "chat", busy: false, offsetPx: 0 };
-  } else if (checking) {
+  } else if (checking || startingDemo) {
     content = (
       <div className="center-fill full">
         <Spinner size={30} />

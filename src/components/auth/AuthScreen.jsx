@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, Eye, EyeOff, Lock, Mail, User } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, Mail, Sparkles, User } from "lucide-react";
 
 import { authApi, tokenStore } from "../../api/client";
 import { OrbBadge, Spinner } from "../ui/primitives";
@@ -12,6 +12,7 @@ export default function AuthScreen({ onAuthenticated }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
 
   const isSignup = mode === "signup";
 
@@ -37,6 +38,21 @@ export default function AuthScreen({ onAuthenticated }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const tryDemo = async () => {
+    setError("");
+    setGuestLoading(true);
+
+    try {
+      const data = await authApi.guest();
+      tokenStore.set(data.access_token);
+      onAuthenticated({ user_id: data.user_id, email: data.email, name: data.name, is_guest: true });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGuestLoading(false);
     }
   };
 
@@ -66,6 +82,19 @@ export default function AuthScreen({ onAuthenticated }) {
             <h1 id="auth-title">{isSignup ? "Create your account" : "Welcome back"}</h1>
             <p>{isSignup ? "Start chatting with Nova in seconds." : "Log in to continue to Nova."}</p>
           </div>
+        </div>
+
+        <button type="button" className="demo-btn" onClick={tryDemo} disabled={guestLoading || loading}>
+          {guestLoading ? <Spinner /> : <Sparkles size={18} aria-hidden="true" />}
+          <span>
+            <strong>Try the demo</strong>
+            <small>No sign-up needed · instant access</small>
+          </span>
+          <ArrowRight size={17} aria-hidden="true" />
+        </button>
+
+        <div className="auth-divider" role="separator">
+          <span>or use your account</span>
         </div>
 
         <div className="auth-tabs" role="tablist">
@@ -104,7 +133,6 @@ export default function AuthScreen({ onAuthenticated }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              autoFocus
             />
           </div>
 

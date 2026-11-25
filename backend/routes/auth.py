@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 
 from auth import authenticate_user
 from auth import create_access_token
+from auth import create_guest
 from auth import create_user
+from auth import is_guest
 from auth import get_current_user
 from auth import hash_password
 from auth import verify_password
@@ -41,6 +43,7 @@ class AuthResponse(BaseModel):
     user_id: str
     email: str
     name: str | None = None
+    is_guest: bool = False
 
 
 class MeResponse(BaseModel):
@@ -48,6 +51,7 @@ class MeResponse(BaseModel):
     email: str
     name: str | None = None
     custom_instructions: str | None = None
+    is_guest: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -71,6 +75,7 @@ def _auth_response(user: User) -> AuthResponse:
         user_id=user.id,
         email=user.email,
         name=user.name,
+        is_guest=is_guest(user),
     )
 
 
@@ -80,6 +85,7 @@ def _me(user: User) -> MeResponse:
         email=user.email,
         name=user.name,
         custom_instructions=user.custom_instructions,
+        is_guest=is_guest(user),
     )
 
 
@@ -95,6 +101,15 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     limiter.check(f"auth:{client_ip(request)}", settings.AUTH_LIMIT_PER_MINUTE, 60)
     user = authenticate_user(db=db, email=body.email, password=body.password)
     return _auth_response(user)
+
+
+@router.post("/guest", response_model=AuthResponse)
+def guest(request: Request, db: Session = Depends(get_db)):
+    if not settings.GUEST_ENABLED:
+        raise HTTPException(status_code=403, detail="The demo is currently disabled.")
+
+    limiter.check(f"guest:{client_ip(request)}", settings.GUEST_SIGNUPS_PER_HOUR, 3600)
+    return _auth_response(create_guest(db))
 
 
 @router.get("/me", response_model=MeResponse)
@@ -158,7 +173,7 @@ def delete_account(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not verify_password(body.password, current_user.password_hash):
+    if not is_guest(current_user) and not verify_password(body.password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Password is incorrect.")
 
     db.delete(current_user)

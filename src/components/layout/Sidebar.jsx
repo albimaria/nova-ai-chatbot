@@ -284,7 +284,7 @@ export default function Sidebar({
             </span>
             <span className="user-meta">
               <strong>{user?.name || "Nova user"}</strong>
-              <small>{user?.email}</small>
+              <small>{user?.is_guest ? "Demo account" : user?.email}</small>
             </span>
           </div>
           <button type="button" className="icon-btn" onClick={onOpenUsage} aria-label="Usage and limits" title="Usage & limits">

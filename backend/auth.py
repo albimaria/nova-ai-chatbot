@@ -76,6 +76,34 @@ def get_current_user(
     return user
 
 
+GUEST_DOMAIN = "@guest.nova"
+
+
+def is_guest(user: User) -> bool:
+    return user.email.endswith(GUEST_DOMAIN)
+
+
+def daily_limit(user: User) -> int:
+    return settings.GUEST_LIMIT_PER_DAY if is_guest(user) else settings.RATE_LIMIT_PER_DAY
+
+
+def create_guest(db: Session) -> User:
+    """A throwaway account for trying Nova without signing up."""
+
+    user = User(
+        id=str(uuid4()),
+        email=f"guest-{uuid4().hex[:12]}{GUEST_DOMAIN}",
+        name="Guest",
+        # Random, never shown: guests can only use their token.
+        password_hash=hash_password(uuid4().hex + uuid4().hex),
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def normalize_email(email: str) -> str:
     return email.strip().lower()
 

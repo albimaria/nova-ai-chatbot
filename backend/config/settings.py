@@ -92,6 +92,14 @@ class Settings:
     # ---------------- Usage tracking ----------------
     # Emails (comma-separated) that can see the per-user usage breakdown.
     ADMIN_EMAILS = [e.lower() for e in _list(os.getenv("ADMIN_EMAILS", ""))]
+    # SHA-256 of admin emails, so the owner is an admin without putting the
+    # address itself in the public repository.
+    ADMIN_EMAIL_HASHES = _list(
+        os.getenv(
+            "ADMIN_EMAIL_HASHES",
+            "98d5ff7acc6287868f66d9f60770265b9593cce2cce4c25f330c18777bcea293",
+        )
+    )
 
     # Gemini API limits for this key, per model. Google doesn't expose remaining quota
     # through the API, so Nova counts its own calls against these numbers.
@@ -107,6 +115,10 @@ class Settings:
     # ---------------- Rate limits (per user) ----------------
     RATE_LIMIT_PER_MINUTE = _int("NOVA_RATE_LIMIT_PER_MINUTE", 10)
     RATE_LIMIT_PER_DAY = _int("NOVA_RATE_LIMIT_PER_DAY", 200)
+    # One-click demo accounts (for recruiters / visitors) get a smaller allowance.
+    GUEST_ENABLED = os.getenv("NOVA_GUEST_ENABLED", "true").lower() == "true"
+    GUEST_LIMIT_PER_DAY = _int("NOVA_GUEST_LIMIT_PER_DAY", 30)
+    GUEST_SIGNUPS_PER_HOUR = _int("NOVA_GUEST_SIGNUPS_PER_HOUR", 10)
     UPLOAD_LIMIT_PER_HOUR = _int("NOVA_UPLOAD_LIMIT_PER_HOUR", 20)
     AUTH_LIMIT_PER_MINUTE = _int("NOVA_AUTH_LIMIT_PER_MINUTE", 10)
 

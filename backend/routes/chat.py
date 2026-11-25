@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from sqlalchemy.orm import Session
 
+from auth import daily_limit
 from auth import get_current_user
 from config.settings import settings
 from database.connection import get_db
@@ -59,7 +60,9 @@ class FeedbackRequest(BaseModel):
 
 def _check_limits(db: Session, user: User) -> None:
     # Daily limit is counted from the database so it survives server restarts.
-    if usage_service.user_messages_last_24h(db, user.id) >= settings.RATE_LIMIT_PER_DAY > 0:
+    limit = daily_limit(user)
+
+    if usage_service.user_messages_last_24h(db, user.id) >= limit > 0:
         raise HTTPException(
             status_code=429,
             detail="You've reached today's message limit. Please come back tomorrow.",

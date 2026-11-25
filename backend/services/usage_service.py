@@ -5,6 +5,7 @@ what Google bills/limits. Google doesn't expose *remaining* quota through the AP
 "left" is computed from Nova's own records against the limits in settings.GEMINI_LIMITS.
 """
 
+import hashlib
 import logging
 from collections import defaultdict
 from datetime import datetime
@@ -15,6 +16,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from auth import daily_limit
+from auth import is_guest
 from config.settings import settings
 from database.models import UsageEvent
 from database.models import User
@@ -146,7 +149,9 @@ def _avg(values) -> int | None:
 
 
 def is_admin(user: User) -> bool:
-    return user.email.lower() in settings.ADMIN_EMAILS
+    email = user.email.lower()
+    digest = hashlib.sha256(email.encode()).hexdigest()
+    return email in settings.ADMIN_EMAILS or digest in settings.ADMIN_EMAIL_HASHES
 
 
 def summary(db: Session, user: User, days: int = 30) -> dict:
@@ -227,8 +232,9 @@ def summary(db: Session, user: User, days: int = 30) -> dict:
         "daily": daily,
         "me": {
             "messagesLast24h": my_24h,
-            "dailyLimit": settings.RATE_LIMIT_PER_DAY,
-            "remaining": max(settings.RATE_LIMIT_PER_DAY - my_24h, 0),
+            "dailyLimit": daily_limit(user),
+            "remaining": max(daily_limit(user) - my_24h, 0),
+            "isGuest": is_guest(user),
             "perMinuteLimit": settings.RATE_LIMIT_PER_MINUTE,
             "today": _totals(mine_today),
             "period": _totals(mine_period),
