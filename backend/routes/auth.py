@@ -1,34 +1,38 @@
-from pydantic import BaseModel, EmailStr, Field
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
+from fastapi import Depends
+from fastapi import HTTPException
+from fastapi import Request
+from pydantic import BaseModel
+from pydantic import EmailStr
+from pydantic import Field
 from sqlalchemy.orm import Session
 
-from auth import (
-    authenticate_user,
-    create_access_token,
-    create_user,
-    get_current_user,
-)
+from auth import authenticate_user
+from auth import create_access_token
+from auth import create_user
+from auth import get_current_user
+from auth import hash_password
+from auth import verify_password
+from config.settings import settings
 from database.connection import get_db
 from database.models import User
+from rate_limit import client_ip
+from rate_limit import limiter
+from serializers import conversation_detail
 
 
-router = APIRouter(
-    prefix="/auth",
-    tags=["Authentication"],
-)
+router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 class SignupRequest(BaseModel):
     email: EmailStr
-    password: str = Field(
-        min_length=6,
-        max_length=128,
-    )
+    password: str = Field(min_length=8, max_length=128)
+    name: str | None = Field(default=None, max_length=80)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=128)
 
 
 class AuthResponse(BaseModel):
@@ -36,75 +40,127 @@ class AuthResponse(BaseModel):
     token_type: str
     user_id: str
     email: str
+    name: str | None = None
 
 
 class MeResponse(BaseModel):
     user_id: str
     email: str
+    name: str | None = None
+    custom_instructions: str | None = None
 
 
-@router.post(
-    "/signup",
-    response_model=AuthResponse,
-)
-def signup(
-    request: SignupRequest,
-    db: Session = Depends(get_db),
-):
-    user = create_user(
-        db=db,
-        email=request.email,
-        password=request.password,
-    )
+class UpdateProfileRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    custom_instructions: str | None = Field(default=None, max_length=4000)
 
-    token = create_access_token(
-        user_id=user.id,
-    )
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(max_length=128)
+
+
+def _auth_response(user: User) -> AuthResponse:
     return AuthResponse(
-        access_token=token,
+        access_token=create_access_token(user_id=user.id),
         token_type="bearer",
         user_id=user.id,
         email=user.email,
+        name=user.name,
     )
 
 
-@router.post(
-    "/login",
-    response_model=AuthResponse,
-)
-def login(
-    request: LoginRequest,
-    db: Session = Depends(get_db),
-):
-    user = authenticate_user(
-        db=db,
-        email=request.email,
-        password=request.password,
-    )
-
-    token = create_access_token(
-        user_id=user.id,
-    )
-
-    return AuthResponse(
-        access_token=token,
-        token_type="bearer",
-        user_id=user.id,
-        email=user.email,
-    )
-
-
-@router.get(
-    "/me",
-    response_model=MeResponse,
-)
-def get_me(
-    current_user: User = Depends(
-        get_current_user
-    ),
-):
+def _me(user: User) -> MeResponse:
     return MeResponse(
-        user_id=current_user.id,
-        email=current_user.email,
+        user_id=user.id,
+        email=user.email,
+        name=user.name,
+        custom_instructions=user.custom_instructions,
     )
+
+
+@router.post("/signup", response_model=AuthResponse)
+def signup(body: SignupRequest, request: Request, db: Session = Depends(get_db)):
+    limiter.check(f"auth:{client_ip(request)}", settings.AUTH_LIMIT_PER_MINUTE, 60)
+    user = create_user(db=db, email=body.email, password=body.password, name=body.name)
+    return _auth_response(user)
+
+
+@router.post("/login", response_model=AuthResponse)
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    limiter.check(f"auth:{client_ip(request)}", settings.AUTH_LIMIT_PER_MINUTE, 60)
+    user = authenticate_user(db=db, email=body.email, password=body.password)
+    return _auth_response(user)
+
+
+@router.get("/me", response_model=MeResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    return _me(current_user)
+
+
+@router.patch("/me", response_model=MeResponse)
+def update_me(
+    body: UpdateProfileRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    fields = body.model_dump(exclude_unset=True)
+
+    if "name" in fields:
+        current_user.name = (fields["name"] or "").strip() or None
+
+    if "custom_instructions" in fields:
+        current_user.custom_instructions = (
+            (fields["custom_instructions"] or "").strip() or None
+        )
+
+    db.commit()
+    db.refresh(current_user)
+    return _me(current_user)
+
+
+@router.post("/change-password")
+def change_password(
+    body: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Your current password is incorrect.")
+
+    current_user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"message": "Password updated."}
+
+
+@router.get("/export")
+def export_data(current_user: User = Depends(get_current_user)):
+    return {
+        "user": {
+            "email": current_user.email,
+            "name": current_user.name,
+            "custom_instructions": current_user.custom_instructions,
+            "created_at": current_user.created_at.isoformat()
+            if current_user.created_at
+            else None,
+        },
+        "conversations": [conversation_detail(c) for c in current_user.conversations],
+    }
+
+
+@router.delete("/me")
+def delete_account(
+    body: DeleteAccountRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(body.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect.")
+
+    db.delete(current_user)
+    db.commit()
+    return {"message": "Account deleted."}

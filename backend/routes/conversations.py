@@ -1,353 +1,175 @@
+import secrets
+
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
-
 from pydantic import BaseModel
-
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
-
 from database.connection import get_db
 from database.models import Conversation
-from database.models import Message
-from database.models import MessageAttachment
 from database.models import User
-
-from services.conversation_service import (
-    get_message_attachments,
-)
-
-
-router = APIRouter(
-    prefix="/api/v1/conversations",
-    tags=["Conversations"],
-)
+from serializers import conversation_detail
+from serializers import conversation_summary
+from serializers import iso
+from serializers import message_dict
+from services.chat_service import get_owned_conversation
 
 
-class RenameConversationRequest(
-    BaseModel
-):
-    title: str
+router = APIRouter(prefix="/api/v1/conversations", tags=["Conversations"])
+
+shared_router = APIRouter(prefix="/api/v1/shared", tags=["Sharing"])
 
 
-# ============================================================
-# GET ALL CONVERSATIONS
-# ============================================================
+class UpdateConversationRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    pinned: bool | None = None
+
 
 @router.get("")
-async def get_conversations(
+def list_conversations(
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        get_current_user
-    ),
+    user: User = Depends(get_current_user),
 ):
     conversations = (
         db.query(Conversation)
-        .filter(
-            Conversation.user_id ==
-            current_user.id
-        )
-        .order_by(
-            Conversation.updated_at.desc()
-        )
+        .filter(Conversation.user_id == user.id)
+        .order_by(Conversation.pinned.desc(), Conversation.updated_at.desc())
         .all()
     )
 
-    return [
-        {
-            "id":
-                conversation.id,
-
-            "title":
-                conversation.title,
-
-            "createdAt": (
-                conversation.created_at.isoformat()
-                if conversation.created_at
-                else None
-            ),
-
-            "updatedAt": (
-                conversation.updated_at.isoformat()
-                if conversation.updated_at
-                else None
-            ),
-        }
-        for conversation in conversations
-    ]
+    return [conversation_summary(c) for c in conversations]
 
 
-# ============================================================
-# GET ONE CONVERSATION
-# ============================================================
-
-@router.get(
-    "/{conversation_id}"
-)
-async def get_conversation(
+@router.get("/{conversation_id}")
+def get_conversation(
     conversation_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        get_current_user
-    ),
+    user: User = Depends(get_current_user),
 ):
+    return conversation_detail(get_owned_conversation(db, conversation_id, user))
+
+
+def _update(conversation_id: str, body: UpdateConversationRequest, db: Session, user: User):
+    conversation = get_owned_conversation(db, conversation_id, user)
+
+    if body.title is not None:
+        title = body.title.strip()
+
+        if not title:
+            raise HTTPException(status_code=400, detail="Title cannot be empty.")
+
+        conversation.title = title
+
+    if body.pinned is not None:
+        conversation.pinned = body.pinned
+
+    # Renaming or pinning should not move the chat to the top of "recent".
+    updated_at = conversation.updated_at
+    db.flush()
+    conversation.updated_at = updated_at
+    db.commit()
+    db.refresh(conversation)
+    return conversation_summary(conversation)
+
+
+@router.patch("/{conversation_id}")
+def update_conversation(
+    conversation_id: str,
+    body: UpdateConversationRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return _update(conversation_id, body, db, user)
+
+
+# Kept for older frontends that rename with PUT.
+@router.put("/{conversation_id}", include_in_schema=False)
+def rename_conversation(
+    conversation_id: str,
+    body: UpdateConversationRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return _update(conversation_id, body, db, user)
+
+
+@router.delete("/{conversation_id}")
+def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    conversation = get_owned_conversation(db, conversation_id, user)
+    db.delete(conversation)
+    db.commit()
+    return {"message": "Conversation deleted", "conversation_id": conversation_id}
+
+
+@router.delete("")
+def delete_all_conversations(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    conversations = db.query(Conversation).filter(Conversation.user_id == user.id).all()
+
+    for conversation in conversations:
+        db.delete(conversation)
+
+    db.commit()
+    return {"deleted": len(conversations)}
+
+
+@router.post("/{conversation_id}/share")
+def share_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    conversation = get_owned_conversation(db, conversation_id, user)
+
+    if not conversation.share_token:
+        conversation.share_token = secrets.token_urlsafe(16)
+        db.commit()
+
+    return {"shareToken": conversation.share_token}
+
+
+@router.delete("/{conversation_id}/share")
+def unshare_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    conversation = get_owned_conversation(db, conversation_id, user)
+    conversation.share_token = None
+    db.commit()
+    return {"shareToken": None}
+
+
+@shared_router.get("/{share_token}")
+def get_shared_conversation(share_token: str, db: Session = Depends(get_db)):
     conversation = (
-        db.query(Conversation)
-        .filter(
-            Conversation.id ==
-            conversation_id,
-            Conversation.user_id ==
-            current_user.id,
-        )
-        .first()
+        db.query(Conversation).filter(Conversation.share_token == share_token).first()
     )
 
     if not conversation:
-        raise HTTPException(
-            status_code=404,
-            detail="Conversation not found",
-        )
+        raise HTTPException(status_code=404, detail="This shared chat no longer exists.")
 
-    messages = (
-        db.query(Message)
-        .filter(
-            Message.conversation_id ==
-            conversation_id
-        )
-        .order_by(
-            Message.created_at.asc()
-        )
-        .all()
-    )
-
-    conversation_messages = []
-
-    for message in messages:
-
-        attachments = (
-            get_message_attachments(
-                db=db,
-                message_id=message.id,
-            )
-        )
-
-        conversation_messages.append(
+    return {
+        "title": conversation.title,
+        "createdAt": iso(conversation.created_at),
+        "messages": [
             {
-                "id":
-                    message.id,
-
-                "role":
-                    message.role,
-
-                "content":
-                    message.content,
-
-                "model":
-                    message.model,
-
-                "createdAt": (
-                    message.created_at.isoformat()
-                    if message.created_at
-                    else None
-                ),
-
+                **message_dict(m, include_feedback=False),
+                # Don't expose file URIs publicly.
                 "attachments": [
-                    {
-                        "id":
-                            attachment.id,
-
-                        "name":
-                            attachment.name,
-
-                        "displayName":
-                            attachment.display_name,
-
-                        "mimeType":
-                            attachment.mime_type,
-
-                        "uri":
-                            attachment.uri,
-
-                        "fileSize":
-                            attachment.file_size,
-
-                        "createdAt": (
-                            attachment.created_at.isoformat()
-                            if attachment.created_at
-                            else None
-                        ),
-                    }
-                    for attachment
-                    in attachments
+                    {"displayName": a.display_name, "mimeType": a.mime_type}
+                    for a in m.attachments
                 ],
             }
-        )
-
-    return {
-        "id":
-            conversation.id,
-
-        "title":
-            conversation.title,
-
-        "createdAt": (
-            conversation.created_at.isoformat()
-            if conversation.created_at
-            else None
-        ),
-
-        "updatedAt": (
-            conversation.updated_at.isoformat()
-            if conversation.updated_at
-            else None
-        ),
-
-        "messages":
-            conversation_messages,
-    }
-
-
-# ============================================================
-# RENAME CONVERSATION
-# ============================================================
-
-@router.put(
-    "/{conversation_id}"
-)
-async def rename_conversation(
-    conversation_id: str,
-    request: RenameConversationRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        get_current_user
-    ),
-):
-    conversation = (
-        db.query(Conversation)
-        .filter(
-            Conversation.id ==
-            conversation_id,
-            Conversation.user_id ==
-            current_user.id,
-        )
-        .first()
-    )
-
-    if not conversation:
-        raise HTTPException(
-            status_code=404,
-            detail="Conversation not found",
-        )
-
-    title = request.title.strip()
-
-    if not title:
-        raise HTTPException(
-            status_code=400,
-            detail="Conversation title cannot be empty",
-        )
-
-    conversation.title = title
-
-    db.commit()
-
-    db.refresh(
-        conversation
-    )
-
-    return {
-        "id":
-            conversation.id,
-
-        "title":
-            conversation.title,
-
-        "createdAt": (
-            conversation.created_at.isoformat()
-            if conversation.created_at
-            else None
-        ),
-
-        "updatedAt": (
-            conversation.updated_at.isoformat()
-            if conversation.updated_at
-            else None
-        ),
-    }
-
-
-# ============================================================
-# DELETE CONVERSATION
-# ============================================================
-
-@router.delete(
-    "/{conversation_id}"
-)
-async def delete_conversation(
-    conversation_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        get_current_user
-    ),
-):
-    conversation = (
-        db.query(Conversation)
-        .filter(
-            Conversation.id ==
-            conversation_id,
-            Conversation.user_id ==
-            current_user.id,
-        )
-        .first()
-    )
-
-    if not conversation:
-        raise HTTPException(
-            status_code=404,
-            detail="Conversation not found",
-        )
-
-    message_ids = [
-        message.id
-        for message in (
-            db.query(Message)
-            .filter(
-                Message.conversation_id ==
-                conversation_id
-            )
-            .all()
-        )
-    ]
-
-    if message_ids:
-        db.query(
-            MessageAttachment
-        ).filter(
-            MessageAttachment.message_id.in_(
-                message_ids
-            )
-        ).delete(
-            synchronize_session=False
-        )
-
-    db.query(Message).filter(
-        Message.conversation_id ==
-        conversation_id
-    ).delete(
-        synchronize_session=False
-    )
-
-    db.delete(
-        conversation
-    )
-
-    db.commit()
-
-    return {
-        "message":
-            "Conversation deleted",
-
-        "conversation_id":
-            conversation_id,
+            for m in conversation.messages
+        ],
     }

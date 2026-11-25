@@ -17,5 +17,13 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      'no-unused-vars': ['error', { ignoreRestSiblings: true, argsIgnorePattern: '^_' }],
+    },
+  },
+  {
+    // Context modules export a provider component plus its hook.
+    files: ['src/state/**/*.jsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
   },
 ])

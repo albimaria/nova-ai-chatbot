@@ -1,12 +1,18 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "./index.css";
-import App from "./App.jsx";
 
-createRoot(
-  document.getElementById("root")
-).render(
+import App from "./App.jsx";
+import { PreferencesProvider } from "./state/preferences";
+import { ToastProvider } from "./state/toast";
+
+import "./styles/app.css";
+
+createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <App />
+    <PreferencesProvider>
+      <ToastProvider>
+        <App />
+      </ToastProvider>
+    </PreferencesProvider>
   </StrictMode>
 );

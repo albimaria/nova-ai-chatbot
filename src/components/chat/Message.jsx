@@ -1,769 +1,298 @@
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import {
-  useState,
-  useEffect,
-  useRef,
-} from "react";
-import ReactMarkdown from "react-markdown";
-
-import {
-  Copy,
+  AlertTriangle,
   Check,
-  ThumbsUp,
-  ThumbsDown,
-  RotateCcw,
-  MoreHorizontal,
-  Pencil,
-  X,
-  Send,
+  Copy,
   FileText,
-  Image,
+  Globe,
+  Image as ImageIcon,
+  Pencil,
+  RefreshCw,
+  RotateCcw,
+  ThumbsDown,
+  ThumbsUp,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
+import { OrbBadge } from "../ui/primitives";
+import { isTemp } from "../../hooks/useChat";
 
-function Message({
-  message,
-  onRegenerate,
-  onEdit,
-}) {
+// Markdown + KaTeX + syntax highlighting is heavy; load it only once a chat is shown.
+const Markdown = lazy(() => import("./Markdown"));
 
-  const [copied, setCopied] =
-    useState(false);
-
-  const [liked, setLiked] =
-    useState(false);
-
-  const [disliked, setDisliked] =
-    useState(false);
-
-  const [editing, setEditing] =
-    useState(false);
-
-  const [showMoreMenu, setShowMoreMenu] =
-    useState(false);
-
-  const moreMenuRef =
-    useRef(null);
-
-  const [editedContent, setEditedContent] =
-    useState(
-      message.content || ""
-    );
-
-  useEffect(() => {
-
-    const handleOutsideClick = (event) => {
-
-      if (
-        moreMenuRef.current &&
-        !moreMenuRef.current.contains(
-          event.target
-        )
-      ) {
-        setShowMoreMenu(false);
-      }
-    };
-
-    if (showMoreMenu) {
-      document.addEventListener(
-        "mousedown",
-        handleOutsideClick
-      );
-    }
-
-    return () => {
-      document.removeEventListener(
-        "mousedown",
-        handleOutsideClick
-      );
-    };
-
-  }, [showMoreMenu]);
-
-
-  /*
-   * COPY ASSISTANT MESSAGE
-   */
-
-  const copyMessage = async () => {
-
-    try {
-
-      await navigator.clipboard.writeText(
-        message.content
-      );
-
-      setCopied(true);
-
-      setTimeout(() => {
-        setCopied(false);
-      }, 1500);
-
-    } catch (error) {
-
-      console.error(
-        "Copy failed:",
-        error
-      );
-
-    }
-  };
-
-
-  /*
-   * SAVE EDIT
-   */
-
-  const handleEditSave = () => {
-
-    const trimmedContent =
-      editedContent.trim();
-
-    if (!trimmedContent) {
-      return;
-    }
-
-    onEdit?.(
-      message,
-      trimmedContent
-    );
-
-    setEditing(false);
-  };
-
-
-  /*
-   * CANCEL EDIT
-   */
-
-  const handleEditCancel = () => {
-
-    setEditedContent(
-      message.content || ""
-    );
-
-    setEditing(false);
-  };
-
-
-  /*
-   * FORMAT FILE SIZE
-   */
-
-  const formatFileSize = (
-    size
-  ) => {
-
-    if (
-      size === null ||
-      size === undefined ||
-      size === 0
-    ) {
-      return "";
-    }
-
-    if (size < 1024) {
-      return `${size} B`;
-    }
-
-    if (
-      size <
-      1024 * 1024
-    ) {
-      return `${(
-        size / 1024
-      ).toFixed(1)} KB`;
-    }
-
-    return `${(
-      size /
-      (1024 * 1024)
-    ).toFixed(1)} MB`;
-  };
-
-
-  /*
-   * GET ATTACHMENT DISPLAY NAME
-   *
-   * Supports both:
-   *
-   * New upload:
-   * file.name
-   *
-   * Restored from backend:
-   * file.displayName
-   */
-
-  const getAttachmentName = (
-    file
-  ) => {
-
-    return (
-      file.displayName ||
-      file.name ||
-      "Attached file"
-    );
-  };
-
-
-  /*
-   * GET ATTACHMENT MIME TYPE
-   *
-   * Supports both:
-   *
-   * New upload:
-   * file.type
-   *
-   * Restored from backend:
-   * file.mimeType
-   */
-
-  const getAttachmentType = (
-    file
-  ) => {
-
-    return (
-      file.mimeType ||
-      file.type ||
-      ""
-    );
-  };
-
-
-  /*
-   * GET ATTACHMENT SIZE
-   *
-   * Supports both:
-   *
-   * New upload:
-   * file.size
-   *
-   * Restored from backend:
-   * file.fileSize
-   */
-
-  const getAttachmentSize = (
-    file
-  ) => {
-
-    return (
-      file.fileSize ??
-      file.size ??
-      null
-    );
-  };
-
-
-  /*
-   * GET FILE ICON
-   */
-
-  const getAttachmentIcon = (
-    file
-  ) => {
-
-    const mimeType =
-      getAttachmentType(
-        file
-      );
-
-    if (
-      mimeType.startsWith(
-        "image/"
-      )
-    ) {
-      return (
-        <Image size={15} />
-      );
-    }
-
-    return (
-      <FileText size={15} />
-    );
-  };
-
-
-  /*
-   * USER MESSAGE
-   */
-
-  if (
-    message.role === "user"
-  ) {
-
-    return (
-      <div className="message-row user-row">
-
-        <div className="user-message-area">
-
-          {/* ATTACHED FILES */}
-
-          {Array.isArray(
-            message.attachments
-          ) &&
-            message.attachments.length > 0 && (
-
-              <div className="sent-attachments">
-
-                {message.attachments.map(
-                  (file, index) => {
-
-                    const fileName =
-                      getAttachmentName(
-                        file
-                      );
-
-                    const fileSize =
-                      getAttachmentSize(
-                        file
-                      );
-
-                    return (
-                      <div
-                        className="sent-attachment"
-                        key={
-                          file.id ||
-                          `${fileName}-${index}`
-                        }
-                      >
-
-                        <div className="sent-attachment-icon">
-
-                          {getAttachmentIcon(
-                            file
-                          )}
-
-                        </div>
-
-
-                        <div className="sent-attachment-info">
-
-                          <span className="sent-attachment-name">
-
-                            {fileName}
-
-                          </span>
-
-
-                          {formatFileSize(
-                            fileSize
-                          ) && (
-
-                              <span className="sent-attachment-size">
-
-                                {formatFileSize(
-                                  fileSize
-                                )}
-
-                              </span>
-
-                            )}
-
-                        </div>
-
-                      </div>
-                    );
-                  }
-                )}
-
-              </div>
-            )}
-
-
-          {/* MESSAGE */}
-
-          <div className="user-message-line">
-
-            {/* EDIT BUTTON */}
-
-            <button
-              className="user-edit-button"
-              onClick={() =>
-                setEditing(true)
-              }
-              title="Edit message"
-              aria-label="Edit message"
-              type="button"
-            >
-
-              <Pencil size={14} />
-
-            </button>
-
-
-            {/* EDIT MODE */}
-
-            {editing ? (
-
-              <div className="user-edit-container">
-
-                <textarea
-                  className="user-edit-textarea"
-                  value={
-                    editedContent
-                  }
-                  onChange={(event) =>
-                    setEditedContent(
-                      event.target.value
-                    )
-                  }
-                  autoFocus
-                />
-
-
-                <div className="user-edit-actions">
-
-                  <button
-                    className="edit-cancel-button"
-                    onClick={
-                      handleEditCancel
-                    }
-                    type="button"
-                  >
-
-                    <X size={14} />
-
-                    Cancel
-
-                  </button>
-
-
-                  <button
-                    className="edit-save-button"
-                    onClick={
-                      handleEditSave
-                    }
-                    disabled={
-                      !editedContent.trim()
-                    }
-                    type="button"
-                  >
-
-                    <Send size={14} />
-
-                    Send
-
-                  </button>
-
-                </div>
-
-              </div>
-
-            ) : (
-
-              /* NORMAL MESSAGE */
-
-              <div className="user-message">
-
-                <span className="user-message-text">
-
-                  {message.content}
-
-                </span>
-
-              </div>
-
-            )}
-
-          </div>
-
-        </div>
-
-      </div>
-    );
-  }
-
-
-  /*
-   * ERROR MESSAGE
-   */
-
-  if (
-    message.role === "error"
-  ) {
-
-    return (
-      <div className="message-row assistant-row">
-
-        <div className="assistant-avatar">
-          N
-        </div>
-
-
-        <div className="assistant-wrapper">
-
-          <div className="assistant-message error-message">
-
-            {message.content}
-
-          </div>
-
-        </div>
-
-      </div>
-    );
-  }
-
-
-  /*
-   * ASSISTANT MESSAGE
-   */
-
+function MarkdownOrText({ content }) {
   return (
-    <div className="message-row assistant-row">
-
-      <div className="assistant-avatar">
-        N
-      </div>
-
-
-      <div className="assistant-wrapper">
-
-        <div className="assistant-message">
-
-          <ReactMarkdown
-            components={{
-              code({
-                inline,
-                children,
-              }) {
-
-                if (inline) {
-
-                  return (
-                    <code className="inline-code">
-                      {children}
-                    </code>
-                  );
-                }
-
-
-                return (
-                  <div className="code-block">
-
-                    <div className="code-header">
-
-                      <span>
-                        Code
-                      </span>
-
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigator.clipboard.writeText(
-                            String(
-                              children
-                            ).replace(
-                              /\n$/,
-                              ""
-                            )
-                          )
-                        }
-                      >
-
-                        <Copy size={14} />
-
-                        Copy
-
-                      </button>
-
-                    </div>
-
-
-                    <pre>
-
-                      <code>
-                        {children}
-                      </code>
-
-                    </pre>
-
-                  </div>
-                );
-              },
-            }}
-          >
-
-            {message.content || ""}
-
-          </ReactMarkdown>
-
-
-          {message.isStreaming &&
-            !message.content && (
-
-              <span className="streaming-dots">
-                <span></span>
-                <span></span>
-                <span></span>
-              </span>
-
-            )}
-
-        </div>
-
-
-        {/* ASSISTANT ACTIONS */}
-
-        <div className="message-actions">
-
-          <button
-            type="button"
-            onClick={
-              copyMessage
-            }
-            title="Copy response"
-          >
-
-            {copied ? (
-              <Check size={15} />
-            ) : (
-              <Copy size={15} />
-            )}
-
-          </button>
-
-
-          <button
-            type="button"
-            className={
-              liked
-                ? "selected"
-                : ""
-            }
-            onClick={() => {
-
-              setLiked(
-                !liked
-              );
-
-              setDisliked(
-                false
-              );
-
-            }}
-            title="Like"
-          >
-
-            <ThumbsUp size={15} />
-
-          </button>
-
-
-          <button
-            type="button"
-            className={
-              disliked
-                ? "selected"
-                : ""
-            }
-            onClick={() => {
-
-              setDisliked(
-                !disliked
-              );
-
-              setLiked(
-                false
-              );
-
-            }}
-            title="Dislike"
-          >
-
-            <ThumbsDown size={15} />
-
-          </button>
-
-
-          <button
-            type="button"
-            onClick={() =>
-              onRegenerate?.(
-                message
-              )
-            }
-            title="Regenerate"
-          >
-
-            <RotateCcw size={15} />
-
-          </button>
-
-
-          <div
-            className="message-more-wrapper"
-            ref={moreMenuRef}
-          >
-
-            <button
-              type="button"
-              className="message-more-button"
-              title="More"
-              onClick={() =>
-                setShowMoreMenu(
-                  !showMoreMenu
-                )
-              }
-            >
-
-              <MoreHorizontal
-                size={15}
-              />
-
-            </button>
-
-
-            {showMoreMenu && (
-
-              <div className="message-more-menu">
-
-                <button
-                  type="button"
-                  onClick={() => {
-
-                    copyMessage();
-
-                    setShowMoreMenu(false);
-
-                  }}
-                >
-                  <Copy size={14} />
-
-                  Copy
-                </button>
-
-
-                <button
-                  type="button"
-                  onClick={() => {
-
-                    setShowMoreMenu(false);
-
-                    onRegenerate?.(
-                      message
-                    );
-
-                  }}
-                >
-                  <RotateCcw size={14} />
-
-                  Regenerate
-                </button>
-
-              </div>
-
-            )}
-
-          </div>
-
-        </div>
-
-      </div>
-
-    </div>
+    <Suspense fallback={<div className="markdown plain-fallback">{content}</div>}>
+      <Markdown content={content} />
+    </Suspense>
   );
 }
 
+function AttachmentChip({ attachment }) {
+  const isImage = attachment.mimeType?.startsWith("image/");
+  const Icon = isImage ? ImageIcon : FileText;
 
-export default Message;
+  return (
+    <span
+      className={`attachment-chip ${attachment.expired ? "expired" : ""}`}
+      title={attachment.expired ? "This file expired after 48 hours and is no longer sent to Nova" : attachment.displayName}
+    >
+      <Icon size={14} aria-hidden="true" />
+      <span className="attachment-name">{attachment.displayName || attachment.name}</span>
+      {attachment.expired && <span className="attachment-flag">expired</span>}
+    </span>
+  );
+}
+
+function ActionButton({ label, onClick, active, children, disabled }) {
+  return (
+    <button
+      type="button"
+      className={`msg-action ${active ? "active" : ""}`}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-pressed={active === undefined ? undefined : active}
+      disabled={disabled}
+    >
+      {children}
+    </button>
+  );
+}
+
+function stripMarkdown(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, " code block. ")
+    .replace(/[#*_`>|~-]/g, " ")
+    .replace(/\[(.*?)\]\(.*?\)/g, "$1");
+}
+
+function Message({ message, isLast, readOnly, busy, onEdit, onRegenerate, onRetry, onFeedback }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+  const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const editRef = useRef(null);
+
+  const isUser = message.role === "user";
+  const serverSaved = !isTemp(message.id);
+
+  useEffect(() => {
+    if (editing && editRef.current) {
+      const element = editRef.current;
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+      element.style.height = "auto";
+      element.style.height = `${element.scrollHeight}px`;
+    }
+  }, [editing]);
+
+  useEffect(() => () => speaking && window.speechSynthesis?.cancel(), [speaking]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard blocked.
+    }
+  };
+
+  const speak = () => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    if (speaking) {
+      synth.cancel();
+      setSpeaking(false);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(stripMarkdown(message.content));
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    synth.cancel();
+    synth.speak(utterance);
+    setSpeaking(true);
+  };
+
+  const saveEdit = () => {
+    const text = draft.trim();
+    if (!text) return;
+    setEditing(false);
+    if (text !== message.content) onEdit(message.id, text);
+  };
+
+  if (isUser) {
+    return (
+      <article className="message message-user" aria-label="Your message">
+        <div className="user-stack">
+          {message.attachments?.length > 0 && (
+            <div className="attachment-row">
+              {message.attachments.map((attachment, index) => (
+                <AttachmentChip key={attachment.id || index} attachment={attachment} />
+              ))}
+            </div>
+          )}
+
+          {editing ? (
+            <div className="edit-box glass">
+              <textarea
+                ref={editRef}
+                value={draft}
+                aria-label="Edit your message"
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  event.target.style.height = "auto";
+                  event.target.style.height = `${event.target.scrollHeight}px`;
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    saveEdit();
+                  }
+                  if (event.key === "Escape") {
+                    setEditing(false);
+                    setDraft(message.content);
+                  }
+                }}
+              />
+              <div className="edit-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setEditing(false);
+                    setDraft(message.content);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-primary" onClick={saveEdit} disabled={!draft.trim()}>
+                  Save & send
+                </button>
+              </div>
+            </div>
+          ) : (
+            message.content && <div className="bubble-user">{message.content}</div>
+          )}
+
+          {!readOnly && !editing && (
+            <div className="msg-actions msg-actions-user">
+              <ActionButton label="Copy message" onClick={copy}>
+                {copied ? <Check size={15} /> : <Copy size={15} />}
+              </ActionButton>
+              <ActionButton
+                label="Edit message"
+                onClick={() => {
+                  setDraft(message.content);
+                  setEditing(true);
+                }}
+                disabled={busy || !serverSaved}
+              >
+                <Pencil size={15} />
+              </ActionButton>
+            </div>
+          )}
+        </div>
+      </article>
+    );
+  }
+
+  const waiting = message.streaming && !message.content;
+
+  return (
+    <article className="message message-assistant" aria-label="Nova's reply" aria-busy={message.streaming}>
+      <div className="assistant-avatar">
+        <OrbBadge size={30} busy={message.streaming} />
+      </div>
+
+      <div className="assistant-body">
+        {waiting ? (
+          <div className="thinking" aria-label="Nova is thinking">
+            <span />
+            <span />
+            <span />
+            <em>Thinking…</em>
+          </div>
+        ) : (
+          <div className={message.streaming ? "streaming" : ""}>
+            <MarkdownOrText content={message.content} />
+          </div>
+        )}
+
+        {message.stopped && <p className="msg-note">Stopped.</p>}
+
+        {message.error && (
+          <div className="msg-error" role="alert">
+            <AlertTriangle size={16} aria-hidden="true" />
+            <span>{message.error}</span>
+            {!readOnly && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onRetry(message.id)} disabled={busy}>
+                <RotateCcw size={14} /> Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        {message.sources?.length > 0 && (
+          <div className="sources">
+            <span className="sources-label">
+              <Globe size={13} /> Sources
+            </span>
+            {message.sources.map((source, index) => (
+              <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer" className="source-chip">
+                <span>{index + 1}</span>
+                {source.title}
+              </a>
+            ))}
+          </div>
+        )}
+
+        {!message.streaming && !message.error && message.content && (
+          <div className="msg-actions">
+            <ActionButton label={copied ? "Copied" : "Copy reply"} onClick={copy}>
+              {copied ? <Check size={15} /> : <Copy size={15} />}
+            </ActionButton>
+
+            {"speechSynthesis" in window && (
+              <ActionButton label={speaking ? "Stop reading" : "Read aloud"} onClick={speak}>
+                {speaking ? <VolumeX size={15} /> : <Volume2 size={15} />}
+              </ActionButton>
+            )}
+
+            {!readOnly && serverSaved && (
+              <>
+                <ActionButton
+                  label="Good response"
+                  active={message.feedback === "up"}
+                  onClick={() => onFeedback(message.id, message.feedback === "up" ? null : "up")}
+                >
+                  <ThumbsUp size={15} />
+                </ActionButton>
+                <ActionButton
+                  label="Bad response"
+                  active={message.feedback === "down"}
+                  onClick={() => onFeedback(message.id, message.feedback === "down" ? null : "down")}
+                >
+                  <ThumbsDown size={15} />
+                </ActionButton>
+                {isLast && (
+                  <ActionButton label="Regenerate" onClick={() => onRegenerate(message.id)} disabled={busy}>
+                    <RefreshCw size={15} />
+                  </ActionButton>
+                )}
+              </>
+            )}
+
+            {message.model && <span className="msg-model">{message.model}</span>}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+export default memo(Message);

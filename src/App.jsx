@@ -1,693 +1,170 @@
-import {
-  useEffect,
-  useState,
-} from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
-import Toast from "./components/common/Toast";
-import Sidebar from "./components/layout/Sidebar";
-import ChatLayout from "./components/layout/ChatLayout";
-import SettingsModal from "./components/common/SettingsModal";
-import AuthPage from "./components/auth/AuthPage";
+import { API_BASE_URL, authApi, setUnauthorizedHandler, tokenStore } from "./api/client";
+import AuthScreen from "./components/auth/AuthScreen";
+import ChatApp from "./components/layout/ChatApp";
+import SharedView from "./components/share/SharedView";
+import { SceneBoundary, Spinner } from "./components/ui/primitives";
+import { usePreferences } from "./state/preferences";
+import { useToast } from "./state/toast";
 
-import {
-  getConversations,
-  deleteConversation,
-  renameConversation,
-  getAuthToken,
-  removeAuthToken,
-} from "./services/chatService";
+const NovaScene = lazy(() => import("./components/three/NovaScene"));
 
+function readShareToken() {
+  const match = window.location.hash.match(/^#\/share\/([\w-]+)/);
+  return match ? match[1] : null;
+}
 
-function App() {
+/** Mount the 3D scene once the browser is idle so chats load first. */
+function useIdleReady() {
+  const [ready, setReady] = useState(false);
 
-  /*
-   * AUTHENTICATION
-   */
+  useEffect(() => {
+    if (window.requestIdleCallback) {
+      const id = window.requestIdleCallback(() => setReady(true), { timeout: 1200 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(() => setReady(true), 300);
+    return () => window.clearTimeout(id);
+  }, []);
 
-  const [
-    isAuthenticated,
-    setIsAuthenticated,
-  ] = useState(() => {
-    return Boolean(
-      getAuthToken()
-    );
-  });
+  return ready;
+}
 
+/** Render's free tier sleeps; tell the user while it wakes up. */
+function useServerWake() {
+  const [waking, setWaking] = useState(false);
 
-  /*
-   * SIDEBAR
-   */
+  useEffect(() => {
+    let done = false;
+    const timer = window.setTimeout(() => !done && setWaking(true), 2500);
 
-  const [
-    sidebarCollapsed,
-    setSidebarCollapsed,
-  ] = useState(false);
-
-
-  /*
-   * CONVERSATIONS
-   */
-
-  const [
-    conversations,
-    setConversations,
-  ] = useState([]);
-
-
-  /*
-   * ACTIVE CONVERSATION
-   */
-
-  const [
-    activeConversation,
-    setActiveConversation,
-  ] = useState(() => {
-    return localStorage.getItem(
-      "nova-active-conversation"
-    );
-  });
-
-
-  /*
-   * SETTINGS
-   */
-
-  const [
-    settingsOpen,
-    setSettingsOpen,
-  ] = useState(false);
-
-
-  /*
-   * THEME
-   */
-
-  const [
-    theme,
-    setTheme,
-  ] = useState(() => {
-    return (
-      localStorage.getItem(
-        "nova-theme"
-      ) || "soft"
-    );
-  });
-
-
-  /*
-   * TOAST
-   */
-
-  const [
-    toast,
-    setToast,
-  ] = useState({
-    visible: false,
-    message: "",
-  });
-
-
-  /*
-   * SHOW TOAST
-   */
-
-  const showToast = (
-    message
-  ) => {
-
-    setToast({
-      visible: true,
-      message,
-    });
-
-
-    setTimeout(() => {
-
-      setToast({
-        visible: false,
-        message: "",
+    fetch(`${API_BASE_URL}/health`)
+      .catch(() => {})
+      .finally(() => {
+        done = true;
+        window.clearTimeout(timer);
+        setWaking(false);
       });
 
-    }, 2200);
-  };
+    return () => window.clearTimeout(timer);
+  }, []);
 
+  return waking;
+}
 
-  /*
-   * LOGOUT
-   *
-   * Declared before the conversation
-   * loading effect so it can be safely
-   * called from that effect.
-   */
+export default function App() {
+  const { prefs, resolvedTheme } = usePreferences();
+  const toast = useToast();
+  const waking = useServerWake();
+  const sceneReady = useIdleReady();
 
-  const handleLogout =
-    () => {
-
-      removeAuthToken();
-
-      localStorage.removeItem(
-        "nova_user"
-      );
-
-      localStorage.removeItem(
-        "nova-active-conversation"
-      );
-
-      setConversations(
-        []
-      );
-
-      setActiveConversation(
-        null
-      );
-
-      setSettingsOpen(
-        false
-      );
-
-      setIsAuthenticated(
-        false
-      );
-    };
-
-
-  /*
-   * LOAD CONVERSATIONS
-   * ONLY AFTER LOGIN
-   */
+  const [shareToken, setShareToken] = useState(readShareToken);
+  const [user, setUser] = useState(null);
+  const [checking, setChecking] = useState(Boolean(tokenStore.get()));
+  const [scene, setScene] = useState({ mode: "auth", busy: false, offsetPx: 0 });
 
   useEffect(() => {
+    const onHash = () => setShareToken(readShareToken());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
-    if (!isAuthenticated) {
-      return;
-    }
-
-
-    const loadBackendConversations =
-      async () => {
-
-        try {
-
-          const data =
-            await getConversations();
-
-
-          const normalized =
-            data.map(
-              (conversation) => ({
-                ...conversation,
-
-                messages:
-                  [],
-              })
-            );
-
-
-          setConversations(
-            normalized
-          );
-
-
-          /*
-           * Restore previously
-           * selected conversation
-           * only if it still exists.
-           */
-
-          const savedActive =
-            localStorage.getItem(
-              "nova-active-conversation"
-            );
-
-
-          if (
-            savedActive &&
-            normalized.some(
-              (conversation) =>
-                conversation.id ===
-                savedActive
-            )
-          ) {
-
-            setActiveConversation(
-              savedActive
-            );
-
-          } else {
-
-            setActiveConversation(
-              null
-            );
-
-            localStorage.removeItem(
-              "nova-active-conversation"
-            );
-          }
-
-        } catch (error) {
-
-          console.error(
-            "Failed to load conversations:",
-            error
-          );
-
-
-          /*
-           * If authentication has
-           * expired or is invalid,
-           * return to login.
-           */
-
-          if (
-            error?.response?.status === 401 ||
-            error?.status === 401 ||
-            error?.message?.includes("401")
-          ) {
-
-            handleLogout();
-
-            return;
-          }
-
-
-          showToast(
-            "Could not load conversations"
-          );
-        }
-      };
-
-
-    loadBackendConversations();
-
-  }, [
-    isAuthenticated,
-  ]);
-
-
-  /*
-   * SAVE THEME
-   */
+  const logout = useCallback(() => {
+    tokenStore.clear();
+    setUser(null);
+    setScene({ mode: "auth", busy: false, offsetPx: 0 });
+    window.history.replaceState(null, "", "#/");
+  }, []);
 
   useEffect(() => {
+    setUnauthorizedHandler(() => {
+      logout();
+      toast.show("Your session ended. Please log in again.", "info");
+    });
+  }, [logout, toast]);
 
-    localStorage.setItem(
-      "nova-theme",
-      theme
+  // Restore the session on load.
+  useEffect(() => {
+    if (!tokenStore.get()) return;
+
+    authApi
+      .me()
+      .then(setUser)
+      .catch((error) => {
+        if (error.status === 401) tokenStore.clear();
+        else toast.show(error.message, "error", 6000);
+      })
+      .finally(() => setChecking(false));
+  }, [toast]);
+
+  const onSceneChange = useCallback((next) => {
+    setScene((current) =>
+      current.mode === next.mode && current.busy === next.busy && current.offsetPx === next.offsetPx
+        ? current
+        : next
     );
-
-  }, [
-    theme,
-  ]);
-
-
-  /*
-   * SAVE ACTIVE CONVERSATION
-   */
-
-  useEffect(() => {
-
-    if (activeConversation) {
-
-      localStorage.setItem(
-        "nova-active-conversation",
-        activeConversation
-      );
-
-    } else {
-
-      localStorage.removeItem(
-        "nova-active-conversation"
-      );
-    }
-
-  }, [
-    activeConversation,
-  ]);
-
-
-  /*
-   * LOGIN / SIGNUP SUCCESS
-   */
-
-  const handleAuthenticated =
-    () => {
-
-      setIsAuthenticated(
-        true
-      );
-
-      setConversations(
-        []
-      );
-
-      setActiveConversation(
-        null
-      );
-    };
-
-
-  /*
-   * NEW CHAT
-   */
-
-  const handleNewChat =
-    () => {
-
-      setActiveConversation(
-        null
-      );
-    };
-
-
-  /*
-   * SELECT CONVERSATION
-   */
-
-  const handleSelectConversation =
-    (id) => {
-
-      setActiveConversation(
-        id
-      );
-
-
-      if (
-        window.innerWidth <=
-        768
-      ) {
-
-        setSidebarCollapsed(
-          true
-        );
-      }
-    };
-
-
-  /*
-   * DELETE CONVERSATION
-   */
-
-  const handleDeleteConversation =
-    async (id) => {
-
-      try {
-
-        await deleteConversation(
-          id
-        );
-
-
-        setConversations(
-          (previous) =>
-            previous.filter(
-              (conversation) =>
-                conversation.id !==
-                id
-            )
-        );
-
-
-        if (
-          activeConversation ===
-          id
-        ) {
-
-          setActiveConversation(
-            null
-          );
-        }
-
-
-        showToast(
-          "Conversation deleted"
-        );
-
-      } catch (error) {
-
-        console.error(
-          "Failed to delete conversation:",
-          error
-        );
-
-
-        showToast(
-          "Could not delete conversation"
-        );
-      }
-    };
-
-
-  /*
-   * RENAME CONVERSATION
-   */
-
-  const handleRenameConversation =
-    async (
-      id,
-      title
-    ) => {
-
-      try {
-
-        const updatedConversation =
-          await renameConversation(
-            id,
-            title
-          );
-
-
-        setConversations(
-          (previous) =>
-            previous.map(
-              (conversation) =>
-                conversation.id ===
-                  id
-                  ? {
-                    ...conversation,
-
-                    title:
-                      updatedConversation.title,
-
-                    updatedAt:
-                      updatedConversation.updatedAt,
-                  }
-                  : conversation
-            )
-        );
-
-
-        showToast(
-          "Conversation renamed"
-        );
-
-      } catch (error) {
-
-        console.error(
-          "Failed to rename conversation:",
-          error
-        );
-
-
-        showToast(
-          "Could not rename conversation"
-        );
-      }
-    };
-
-
-  /*
-   * UPDATE CONVERSATION
-   */
-
-  const handleConversationUpdate =
-    (
-      conversation
-    ) => {
-
-      setConversations(
-        (previous) => {
-
-          const exists =
-            previous.some(
-              (item) =>
-                item.id ===
-                conversation.id
-            );
-
-
-          if (exists) {
-
-            return previous.map(
-              (item) =>
-                item.id ===
-                  conversation.id
-                  ? {
-                    ...item,
-                    ...conversation,
-                  }
-                  : item
-            );
-          }
-
-
-          return [
-            conversation,
-            ...previous,
-          ];
-        }
-      );
-
-
-      setActiveConversation(
-        conversation.id
-      );
-    };
-
-
-  /*
-   * SHOW LOGIN / SIGNUP
-   * WHEN NOT AUTHENTICATED
-   */
-
-  if (!isAuthenticated) {
-
-    return (
-      <AuthPage
-        onAuthenticated={
-          handleAuthenticated
-        }
+  }, []);
+
+  let content;
+  let sceneState = scene;
+
+  if (shareToken) {
+    content = <SharedView token={shareToken} />;
+    sceneState = { mode: "chat", busy: false, offsetPx: 0 };
+  } else if (checking) {
+    content = (
+      <div className="center-fill full">
+        <Spinner size={30} />
+      </div>
+    );
+  } else if (!user) {
+    content = (
+      <AuthScreen
+        onAuthenticated={(data) => {
+          setUser(data);
+          // Fetch the full profile (custom instructions etc.).
+          authApi.me().then(setUser).catch(() => {});
+        }}
+      />
+    );
+    sceneState = { mode: "auth", busy: false, offsetPx: 0 };
+  } else {
+    content = (
+      <ChatApp
+        user={user}
+        onUserChange={setUser}
+        onLogout={logout}
+        onSceneChange={onSceneChange}
       />
     );
   }
 
-
-  /*
-   * MAIN NOVA APPLICATION
-   */
-
   return (
-    <div
-      className={`app theme-${theme}`}
-    >
+    <>
+      <div className="backdrop" aria-hidden="true" />
 
-      <Sidebar
-        collapsed={
-          sidebarCollapsed
-        }
+      {sceneReady && (
+        <SceneBoundary>
+          <Suspense fallback={null}>
+            <NovaScene
+              mode={sceneState.mode}
+              busy={sceneState.busy}
+              offsetPx={sceneState.offsetPx}
+              theme={resolvedTheme}
+              motion={prefs.motion}
+            />
+          </Suspense>
+        </SceneBoundary>
+      )}
 
-        setCollapsed={
-          setSidebarCollapsed
-        }
+      <div className="app-layer">{content}</div>
 
-        conversations={
-          conversations
-        }
-
-        activeConversation={
-          activeConversation
-        }
-
-        onNewChat={
-          handleNewChat
-        }
-
-        onSelectConversation={
-          handleSelectConversation
-        }
-
-        onDeleteConversation={
-          handleDeleteConversation
-        }
-
-        onRenameConversation={
-          handleRenameConversation
-        }
-
-        onOpenSettings={() =>
-          setSettingsOpen(
-            true
-          )
-        }
-
-        onLogout={
-          handleLogout
-        }
-      />
-
-
-      <ChatLayout
-        sidebarCollapsed={
-          sidebarCollapsed
-        }
-
-        activeConversation={
-          activeConversation
-        }
-
-        conversations={
-          conversations
-        }
-
-        onConversationUpdate={
-          handleConversationUpdate
-        }
-      />
-
-
-      <SettingsModal
-        open={
-          settingsOpen
-        }
-
-        onClose={() =>
-          setSettingsOpen(
-            false
-          )
-        }
-
-        theme={
-          theme
-        }
-
-        onThemeChange={(
-          newTheme
-        ) => {
-
-          setTheme(
-            newTheme
-          );
-
-
-          showToast(
-            newTheme ===
-              "soft"
-              ? "Soft theme applied"
-              : "Lavender theme applied"
-          );
-        }}
-      />
-
-
-      <Toast
-        visible={
-          toast.visible
-        }
-
-        message={
-          toast.message
-        }
-
-        onClose={() =>
-          setToast({
-            visible: false,
-            message: "",
-          })
-        }
-      />
-
-    </div>
+      {waking && (
+        <div className="wake-banner glass" role="status">
+          <Spinner size={14} /> Waking up Nova's server… this can take up to a minute.
+        </div>
+      )}
+    </>
   );
 }
-
-
-export default App;
