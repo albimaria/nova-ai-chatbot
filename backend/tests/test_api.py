@@ -197,3 +197,10 @@ def test_docx_to_text():
         archive.writestr("word/document.xml", xml)
 
     assert docx_to_text(buffer.getvalue()) == "Hello\nWorld"
+
+
+def test_health_reports_database_without_secrets(client):
+    data = client.get("/health").json()
+    assert data["databaseStatus"] == "ok"
+    assert data["database"] in ("sqlite", "postgresql")
+    assert "://" not in str(data)

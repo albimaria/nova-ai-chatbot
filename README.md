@@ -86,7 +86,7 @@ CI runs both on every push and pull request (`.github/workflows/ci.yml`).
 | --- | --- | --- |
 | `GEMINI_API_KEY` | yes | Google AI Studio key |
 | `JWT_SECRET` | recommended | `python -c "import secrets; print(secrets.token_urlsafe(48))"`. If unset on Render, a stable secret is derived from `GEMINI_API_KEY` |
-| `DATABASE_URL` | yes | PostgreSQL URL (e.g. a Render Postgres or Neon database). SQLite on Render is wiped on every restart |
+| `DATABASE_URL` | yes | PostgreSQL URL. Recommended: a free [Neon](https://neon.tech) project (pooled connection string). Render's free Postgres expires after 30 days, and SQLite on Render is wiped on every restart. Check `/health`: `"database": "postgresql"` means it is in use |
 | `CORS_ORIGINS` | no | Defaults to localhost + `https://albimaria.github.io` |
 | `NOVA_RATE_LIMIT_PER_MINUTE` / `_PER_DAY` | no | Defaults 10 / 200 per user |
 | `NOVA_MODEL_FAST` / `_STANDARD` / `_REASONING` | no | Override the Gemini model behind each Nova model |

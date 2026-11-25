@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 _db_dir = tempfile.mkdtemp()
-os.environ["DATABASE_URL"] = f"sqlite:///{_db_dir}/test.db"
+# Set TEST_DATABASE_URL to run the suite against PostgreSQL instead of SQLite.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_db_dir}/test.db"
 os.environ["JWT_SECRET"] = "test-secret-for-pytest-only-0123456789abcdef"
 os.environ["GEMINI_API_KEY"] = "test-key"
 os.environ["NOVA_WEB_SEARCH_ENABLED"] = "true"

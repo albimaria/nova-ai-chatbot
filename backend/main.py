@@ -6,7 +6,10 @@ from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from sqlalchemy import text
+
 from config.settings import settings
+from database.connection import engine
 from database.migrate import run_migrations
 from routes.auth import router as auth_router
 from routes.chat import router as chat_router
@@ -59,7 +62,22 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "service": "nova-backend"}
+    # Reports the database type and reachability only, never the URL or credentials.
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        database = "ok"
+    except Exception:
+        logger.exception("Database health check failed")
+        database = "unreachable"
+
+    return {
+        "status": "healthy" if database == "ok" else "degraded",
+        "service": "nova-backend",
+        "database": engine.dialect.name,
+        "databaseStatus": database,
+        "persistent": engine.dialect.name != "sqlite" or not settings.IS_HOSTED,
+    }
 
 
 app.include_router(auth_router)
