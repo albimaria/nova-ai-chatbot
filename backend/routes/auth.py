@@ -11,7 +11,9 @@ from auth import authenticate_user
 from auth import create_access_token
 from auth import create_guest
 from auth import create_user
+from auth import GUEST_DOMAIN
 from auth import is_guest
+from auth import normalize_email
 from auth import get_current_user
 from auth import hash_password
 from auth import verify_password
@@ -64,6 +66,12 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class ClaimGuestRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    name: str | None = Field(default=None, max_length=80)
+
+
 class DeleteAccountRequest(BaseModel):
     password: str = Field(max_length=128)
 
@@ -110,6 +118,41 @@ def guest(request: Request, db: Session = Depends(get_db)):
 
     limiter.check(f"guest:{client_ip(request)}", settings.GUEST_SIGNUPS_PER_HOUR, 3600)
     return _auth_response(create_guest(db))
+
+
+@router.post("/claim", response_model=AuthResponse)
+def claim_guest(
+    body: ClaimGuestRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Turn the current demo account into a real one, keeping all its chats."""
+
+    if not is_guest(current_user):
+        raise HTTPException(status_code=400, detail="This account already has an email and password.")
+
+    limiter.check(f"auth:{client_ip(request)}", settings.AUTH_LIMIT_PER_MINUTE, 60)
+
+    email = normalize_email(body.email)
+
+    if email.endswith(GUEST_DOMAIN):
+        raise HTTPException(status_code=400, detail="Please use your own email address.")
+
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+
+    current_user.email = email
+    current_user.password_hash = hash_password(body.password)
+
+    if body.name and body.name.strip():
+        current_user.name = body.name.strip()
+    elif current_user.name == "Guest":
+        current_user.name = None
+
+    db.commit()
+    db.refresh(current_user)
+    return _auth_response(current_user)
 
 
 @router.get("/me", response_model=MeResponse)

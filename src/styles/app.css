@@ -766,6 +766,26 @@ kbd {
   }
 }
 
+.guest-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  color: var(--text-2);
+  background: var(--surface-active);
+  border: 1px solid rgba(123, 97, 255, 0.3);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 24px 22px;
+}
+
 .sidebar-footer {
   display: flex;
   align-items: center;

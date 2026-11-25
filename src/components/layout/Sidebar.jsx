@@ -194,6 +194,7 @@ export default function Sidebar({
   onOpenSettings,
   onOpenUsage,
   onLogout,
+  onSaveChats,
 }) {
   const [query, setQuery] = useState("");
 
@@ -276,6 +277,15 @@ export default function Sidebar({
             </section>
           ))}
         </nav>
+
+        {user?.is_guest && (
+          <div className="guest-banner">
+            <span>Demo account. Create an account to keep your chats.</span>
+            <button type="button" className="btn btn-primary btn-sm" onClick={onSaveChats}>
+              Save my chats
+            </button>
+          </div>
+        )}
 
         <div className="sidebar-footer">
           <div className="user-chip">

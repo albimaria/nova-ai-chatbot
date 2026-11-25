@@ -13,6 +13,8 @@ import WelcomeScreen from "../chat/WelcomeScreen";
 import SettingsDialog from "../settings/SettingsDialog";
 import ShareDialog from "../share/ShareDialog";
 import UsageDialog from "../usage/UsageDialog";
+import SaveChatsDialog from "../auth/SaveChatsDialog";
+import { Dialog } from "../ui/primitives";
 import { Spinner } from "../ui/primitives";
 import Sidebar from "./Sidebar";
 
@@ -34,6 +36,8 @@ export default function ChatApp({ user, onUserChange, onLogout, onSceneChange })
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [shareId, setShareId] = useState(null);
   const [webSearchAvailable, setWebSearchAvailable] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -238,7 +242,11 @@ export default function ChatApp({ user, onUserChange, onLogout, onSceneChange })
           setMobileSidebar(false);
           setUsageOpen(true);
         }}
-        onLogout={onLogout}
+        onLogout={() => (user?.is_guest ? setConfirmSignOut(true) : onLogout())}
+        onSaveChats={() => {
+          setMobileSidebar(false);
+          setSaveOpen(true);
+        }}
       />
 
       <main className="chat-main">
@@ -334,6 +342,41 @@ export default function ChatApp({ user, onUserChange, onLogout, onSceneChange })
       />
 
       <UsageDialog open={usageOpen} onClose={() => setUsageOpen(false)} />
+
+      <SaveChatsDialog
+        open={saveOpen}
+        onClose={() => setSaveOpen(false)}
+        onSaved={(saved) => onUserChange({ ...user, ...saved })}
+      />
+
+      <Dialog
+        open={confirmSignOut}
+        onClose={() => setConfirmSignOut(false)}
+        title="Sign out of the demo?"
+        size="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost btn-danger-text" onClick={onLogout}>
+              Sign out anyway
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setConfirmSignOut(false);
+                setSaveOpen(true);
+              }}
+            >
+              Save my chats
+            </button>
+          </>
+        }
+      >
+        <p className="dialog-text">
+          Demo accounts have no password, so you can't sign back in to them. Your demo conversations
+          will be lost unless you create an account first. It takes a few seconds and keeps every chat.
+        </p>
+      </Dialog>
 
       <ShareDialog
         key={shareId || "closed"}

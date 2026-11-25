@@ -111,6 +111,12 @@ export const authApi = {
       auth: false,
       fallback: "Couldn't start the demo.",
     }),
+  claim: (email, password, name) =>
+    request("/auth/claim", {
+      method: "POST",
+      body: { email, password, name: name || null },
+      fallback: "Couldn't create your account.",
+    }),
   me: () => request("/auth/me"),
   updateProfile: (fields) => request("/auth/me", { method: "PATCH", body: fields }),
   changePassword: (current_password, new_password) =>
