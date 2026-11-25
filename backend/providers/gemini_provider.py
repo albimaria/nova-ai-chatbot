@@ -4,6 +4,7 @@ from datetime import datetime
 from datetime import timezone
 from typing import Iterator
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -182,14 +183,22 @@ def friendly_error(error: Exception) -> str:
 
 class StreamEvent:
     def __init__(self, kind: str, value):
-        self.kind = kind  # "text" | "sources" | "notice"
+        self.kind = kind  # "text" | "sources" | "notice" | "reset"
         self.value = value
+
+
+# Per-request deadline (Gemini's minimum is 10 s). High thinking legitimately takes longer.
+TIMEOUT_MS = 30_000
+TIMEOUT_HIGH_THINKING_MS = 90_000
 
 
 def _config(system_prompt: str, temperature: float, web_search: bool, thinking: str | None):
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         temperature=max(0.0, min(2.0, temperature)),
+        http_options=types.HttpOptions(
+            timeout=TIMEOUT_HIGH_THINKING_MS if (thinking or "").upper() == "HIGH" else TIMEOUT_MS
+        ),
     )
 
     if thinking:
@@ -249,6 +258,9 @@ def stream_reply(
 
     retries = 0
 
+    def retriable(code: int | None, error: Exception) -> bool:
+        return code in (429, 500, 502, 503, 504) or is_model_unavailable(error)
+
     sources: dict[str, str] = {}
 
     for index, (candidate, level, search) in enumerate(candidates):
@@ -282,25 +294,35 @@ def stream_reply(
             meta.pop("error_code", None)
             break
 
-        except genai_errors.APIError as error:
+        except (genai_errors.APIError, httpx.TimeoutException, httpx.TransportError) as error:
             last = index == len(candidates) - 1
-            meta["error_code"] = _error_code(error)
+            code = _error_code(error) if isinstance(error, genai_errors.APIError) else 504
+            meta["error_code"] = code
 
-            if not produced and not last and is_model_unavailable(error):
-                logger.warning("Model %s unavailable (%s), falling back", candidate, error)
+            if last or not retriable(code, error):
+                if isinstance(error, genai_errors.APIError):
+                    raise
+                raise genai_errors.ServerError(
+                    504, {"error": {"code": 504, "message": str(error), "status": "DEADLINE_EXCEEDED"}}
+                ) from error
 
-                if _error_code(error) in (429, 500, 502, 503, 504):
-                    retries += 1
-                    time.sleep(retries)
+            logger.warning("Model %s failed (%s), retrying on fallback", candidate, error)
 
-                if search:
-                    yield StreamEvent(
-                        "notice", "Web search isn't available right now, so Nova answered without it."
-                    )
+            if produced:
+                # Failed mid-answer: tell the client to discard the partial text and start over.
+                sources.clear()
+                yield StreamEvent("reset", None)
 
-                continue
+            if code in (429, 500, 502, 503, 504):
+                retries += 1
+                time.sleep(retries)
 
-            raise
+            if search:
+                yield StreamEvent(
+                    "notice", "Web search isn't available right now, so Nova answered without it."
+                )
+
+            continue
 
     if sources:
         yield StreamEvent(

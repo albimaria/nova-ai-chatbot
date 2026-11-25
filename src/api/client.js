@@ -204,7 +204,7 @@ function parseEvent(block) {
  * Start a streamed reply.
  *
  * kind: "send" | "edit" | "regenerate"
- * handlers: { onStart, onDelta, onSources, onNotice, onDone }
+ * handlers: { onStart, onDelta, onReset, onSources, onNotice, onDone }
  */
 export async function streamChat({ kind, messageId, body, signal, handlers = {} }) {
   const path =
@@ -245,6 +245,7 @@ export async function streamChat({ kind, messageId, body, signal, handlers = {} 
 
     if (event === "start") handlers.onStart?.(data);
     else if (event === "delta") handlers.onDelta?.(data.text);
+    else if (event === "reset") handlers.onReset?.();
     else if (event === "sources") handlers.onSources?.(data.sources);
     else if (event === "notice") handlers.onNotice?.(data.message);
     else if (event === "done") handlers.onDone?.(data);

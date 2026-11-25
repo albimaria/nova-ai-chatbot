@@ -273,6 +273,10 @@ def stream_reply(
                 content += event.value
                 yield sse("delta", {"text": event.value})
 
+            elif event.kind == "reset":
+                content = ""
+                yield sse("reset", {})
+
             elif event.kind == "notice":
                 yield sse("notice", {"message": event.value})
 

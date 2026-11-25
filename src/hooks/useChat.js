@@ -130,6 +130,13 @@ export function useChat(conversationId, options, callbacks) {
               buffer += text;
               if (!frame) frame = requestAnimationFrame(flush);
             },
+            onReset: () => {
+              // The server is retrying after a mid-answer failure: start the reply over.
+              if (frame) cancelAnimationFrame(frame);
+              frame = null;
+              buffer = "";
+              patch(assistantId, { content: "", sources: [] });
+            },
             onSources: (sources) => patch(assistantId, { sources }),
             onNotice: (message) => callbacksRef.current.onNotice?.(message),
             onDone: (data) => {
